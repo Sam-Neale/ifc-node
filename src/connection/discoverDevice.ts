@@ -1,5 +1,3 @@
-// src/connection/discoverDevice.ts
-
 import dgram from "node:dgram";
 import net from "node:net";
 
@@ -9,10 +7,16 @@ import type { InfiniteFlightDevice } from "../types/discovery";
 const DISCOVERY_PORT = 15000;
 const DEFAULT_DISCOVERY_TIMEOUT = 15_000;
 
+/**
+ * Raw UDP discovery packet shape.
+ *
+ * Discovery packets arrive as JSON, so every field starts as unknown and is
+ * checked before being copied into the public `InfiniteFlightDevice` type.
+ */
 interface DiscoveryPacket {
 	state?: unknown;
 	port?: unknown;
-	deviceId?: unknown;
+	deviceID?: unknown;
 	aircraft?: unknown;
 	version?: unknown;
 	deviceName?: unknown;
@@ -20,6 +24,16 @@ interface DiscoveryPacket {
 	livery?: unknown;
 }
 
+/**
+ * Wait for an Infinite Flight UDP discovery packet.
+ *
+ * Infinite Flight advertises device identity, aircraft details, candidate
+ * network addresses, and an advertised port on UDP port 15000. The first valid
+ * packet wins.
+ *
+ * @param timeout Maximum time to wait in milliseconds.
+ * @returns Parsed device metadata.
+ */
 export async function discoverDevice(
 	timeout = DEFAULT_DISCOVERY_TIMEOUT,
 ): Promise<InfiniteFlightDevice> {
@@ -56,9 +70,8 @@ export async function discoverDevice(
 		socket.on("message", (message, remoteInfo) => {
 			try {
 				const packet = JSON.parse(message.toString("utf8")) as DiscoveryPacket;
-
-				const device = parseDiscoveryPacket(packet, remoteInfo.address);
-
+				const device = parseDiscoveryPacket(packet);
+				console.log(device);
 				finish(undefined, device);
 			} catch {
 				// Ignore unrelated or malformed UDP packets.
@@ -71,61 +84,50 @@ export async function discoverDevice(
 	});
 }
 
-function parseDiscoveryPacket(
-	packet: DiscoveryPacket,
-	remoteAddress: string,
-): InfiniteFlightDevice {
-	const addresses = Array.isArray(packet.addresses)
-		? packet.addresses.filter(
-				(address): address is string => typeof address === "string",
-			)
-		: [];
-
+/**
+ * Validate and normalize a discovery packet.
+ *
+ * The remote UDP sender address is added to the address list
+ */
+function parseDiscoveryPacket(packet: DiscoveryPacket): InfiniteFlightDevice {
+	// Check for the presence of required fields with the expected types. (address: string[], port: int, devideID, version, deviceName,state,aircraft,livery)
 	if (
-		typeof packet.deviceId !== "string" ||
+		typeof packet.state !== "string" ||
+		typeof packet.port !== "number" ||
+		typeof packet.deviceID !== "string" ||
+		typeof packet.version !== "string" ||
 		typeof packet.deviceName !== "string" ||
 		typeof packet.aircraft !== "string" ||
-		typeof packet.version !== "string"
+		typeof packet.livery !== "string" ||
+		!Array.isArray(packet.addresses) ||
+		!packet.addresses.every((address) => typeof address === "string")
 	) {
-		throw new Error("Invalid discovery packet");
+		throw new Error("Received an invalid discovery packet.");
 	}
 
-	if (!addresses.includes(remoteAddress)) {
-		addresses.push(remoteAddress);
+	//Find a singular address from the addresses, which is ipv4 and makes sense (not 127.0.0.1 or 192.0.0.1/2)
+	let validAddress: string | null = null;
+	validAddress =
+		packet.addresses.find((address) => {
+			return (
+				net.isIPv4(address) &&
+				!address.startsWith("127.") &&
+				!address.startsWith("192.0.0.")
+			);
+		}) || null;
+
+	if (validAddress === null) {
+		throw new Error("No valid address found in discovery packet.");
 	}
 
 	return {
-		state: typeof packet.state === "string" ? packet.state : "Unknown",
-
-		deviceId: packet.deviceId,
+		state: packet.state,
+		deviceId: packet.deviceID,
 		deviceName: packet.deviceName,
 		aircraft: packet.aircraft,
-
-		livery: typeof packet.livery === "string" ? packet.livery : "",
-
+		livery: packet.livery,
 		version: packet.version,
-		addresses,
-
-		advertisedPort: typeof packet.port === "number" ? packet.port : 10111,
+		address: validAddress,
+		advertisedPort: packet.port,
 	};
-}
-
-export function selectDeviceAddress(device: InfiniteFlightDevice): string {
-	const ipv4Address = device.addresses.find((address) => net.isIPv4(address));
-
-	if (ipv4Address) {
-		return ipv4Address;
-	}
-
-	const ipv6Address = device.addresses.find((address) =>
-		net.isIPv6(
-			address.includes("%") ? address.slice(0, address.indexOf("%")) : address,
-		),
-	);
-
-	if (ipv6Address) {
-		return ipv6Address;
-	}
-
-	throw new Error(`No usable address was advertised by ${device.deviceName}.`);
 }

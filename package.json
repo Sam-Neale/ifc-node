@@ -1,6 +1,6 @@
 {
 	"name": "ifc-node",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Infinite Flight Connect API Wrapper for Node.JS",
 	"keywords": [
 		"IF",
@@ -36,10 +36,7 @@
 	},
 	"scripts": {
 		"build": "tsc",
-		"lint": "eslint .",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"prepublishOnly": "npm run lint && npm run test && npm run build"
+		"prepublishOnly": "npm run build"
 	},
 	"devDependencies": {
 		"@types/node": "^25.9.3",

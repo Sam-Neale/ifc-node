@@ -6,6 +6,12 @@ import type { StateValue } from "../types/states";
 const MANIFEST_ID = -1;
 const DEFAULT_REQUEST_TIMEOUT = 5_000;
 
+/**
+ * Numeric data type identifiers used by the Connect API manifest.
+ *
+ * Manifest entries with data type `-1` are commands rather than readable or
+ * writable state values.
+ */
 enum APIDataType {
 	Boolean = 0,
 	Integer = 1,
@@ -15,24 +21,54 @@ enum APIDataType {
 	Long = 5,
 }
 
+/**
+ * Parsed manifest row.
+ *
+ * The wire manifest is line-oriented text containing numeric IDs, data type
+ * IDs, and state or command names. `ProtocolClient` stores those rows in a map
+ * keyed by name so higher layers can use human-readable paths.
+ */
 export interface ManifestEntry {
 	id: number;
 	dataType: APIDataType | -1;
 	name: string;
 }
 
+/**
+ * A pending state read waiting for a matching response frame.
+ *
+ * Multiple reads for the same state ID are queued because the protocol
+ * response includes the state ID but no separate request correlation token.
+ */
 interface PendingRead {
 	resolve: (value: StateValue) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
 }
 
+/**
+ * The single pending manifest request.
+ *
+ * The client requests the manifest during connection setup. A second manifest
+ * request is rejected while one is already in flight because there is only one
+ * manifest response channel.
+ */
 interface PendingManifest {
 	resolve: (entries: Map<string, ManifestEntry>) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
 }
 
+/**
+ * Low-level Connect API v2 socket client.
+ *
+ * This class is intentionally transport-focused. It opens the TCP socket,
+ * requests and parses the manifest, frames reads/writes/commands, decodes
+ * incoming values, and rejects outstanding requests when the connection fails.
+ *
+ * Higher-level connection lifecycle and user-facing errors live in
+ * `IFCClient`.
+ */
 export class ProtocolClient {
 	private socket?: net.Socket;
 	private receiveBuffer = Buffer.alloc(0);
@@ -44,6 +80,12 @@ export class ProtocolClient {
 
 	private connected = false;
 
+	/**
+	 * Open a TCP connection and load the live manifest.
+	 *
+	 * If manifest loading fails, the socket is closed before the error is
+	 * rethrown so callers do not have to clean up a half-ready protocol client.
+	 */
 	public async connect(host: string, port: number): Promise<void> {
 		if (this.connected) {
 			return;
@@ -89,6 +131,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Close the socket, reset protocol state, and reject pending work.
+	 */
 	public async disconnect(): Promise<void> {
 		const socket = this.socket;
 
@@ -124,6 +169,12 @@ export class ProtocolClient {
 		});
 	}
 
+	/**
+	 * Read a state by manifest path.
+	 *
+	 * The request frame contains the numeric state ID and a `hasData` flag set
+	 * to false. The matching response is decoded using the manifest data type.
+	 */
 	public async read(path: string): Promise<StateValue> {
 		const entry = this.getStateEntry(path);
 
@@ -160,6 +211,12 @@ export class ProtocolClient {
 		});
 	}
 
+	/**
+	 * Write a state by manifest path.
+	 *
+	 * The request frame contains the numeric state ID, a `hasData` flag set to
+	 * true, and the encoded payload bytes.
+	 */
 	public async write(path: string, value: StateValue): Promise<void> {
 		const entry = this.getStateEntry(path);
 		const socket = this.assertSocket();
@@ -176,6 +233,12 @@ export class ProtocolClient {
 		await this.writeToSocket(socket, request);
 	}
 
+	/**
+	 * Invoke a manifest command.
+	 *
+	 * Command entries are identified by manifest rows whose data type is `-1`.
+	 * This implementation sends the command frame without arguments.
+	 */
 	public async command(
 		command: string,
 		arguments_: CommandArgument[],
@@ -204,14 +267,23 @@ export class ProtocolClient {
 		await this.writeToSocket(socket, request);
 	}
 
+	/**
+	 * Check whether the live manifest contains a state or command name.
+	 */
 	public has(path: string): boolean {
 		return this.manifest.has(path);
 	}
 
+	/**
+	 * Return the cached live manifest.
+	 */
 	public getManifest(): ReadonlyMap<string, ManifestEntry> {
 		return this.manifest;
 	}
 
+	/**
+	 * Attach socket event handlers after the initial TCP connection succeeds.
+	 */
 	private attachSocketListeners(socket: net.Socket): void {
 		socket.on("data", (data: Buffer | string) => {
 			const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -238,6 +310,9 @@ export class ProtocolClient {
 		});
 	}
 
+	/**
+	 * Request the manifest from the reserved manifest ID.
+	 */
 	private async requestManifest(): Promise<Map<string, ManifestEntry>> {
 		const socket = this.assertSocket();
 
@@ -272,6 +347,12 @@ export class ProtocolClient {
 		});
 	}
 
+	/**
+	 * Decode complete response frames from the receive buffer.
+	 *
+	 * The TCP socket can split or combine frames arbitrarily, so incoming bytes
+	 * are accumulated until at least one full frame is available.
+	 */
 	private processReceiveBuffer(): void {
 		/*
 		 * Every response begins with:
@@ -311,6 +392,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Parse and resolve the pending manifest request.
+	 */
 	private handleManifestResponse(payload: Buffer): void {
 		const pending = this.pendingManifest;
 
@@ -337,6 +421,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Resolve the oldest pending read for a returned state ID.
+	 */
 	private handleStateResponse(id: number, payload: Buffer): void {
 		const queue = this.pendingReads.get(id);
 
@@ -379,6 +466,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Convert the manifest text payload into a map keyed by state or command name.
+	 */
 	private parseManifest(manifestText: string): Map<string, ManifestEntry> {
 		const entries = new Map<string, ManifestEntry>();
 
@@ -430,6 +520,9 @@ export class ProtocolClient {
 		return entries;
 	}
 
+	/**
+	 * Fetch a manifest entry and ensure it represents a state, not a command.
+	 */
 	private getStateEntry(path: string): ManifestEntry {
 		const entry = this.manifest.get(path);
 
@@ -446,6 +539,9 @@ export class ProtocolClient {
 		return entry;
 	}
 
+	/**
+	 * Find a manifest entry by numeric protocol ID.
+	 */
 	private findManifestEntryById(id: number): ManifestEntry | undefined {
 		for (const entry of this.manifest.values()) {
 			if (entry.id === id) {
@@ -456,6 +552,9 @@ export class ProtocolClient {
 		return undefined;
 	}
 
+	/**
+	 * Create the fixed-size request header.
+	 */
 	private createRequest(id: number, hasData: boolean): Buffer {
 		const request = Buffer.alloc(5);
 
@@ -465,6 +564,10 @@ export class ProtocolClient {
 		return request;
 	}
 
+	/**
+	 * Encode a JavaScript value into the byte representation expected by the
+	 * manifest data type.
+	 */
 	private encodeValue(
 		dataType: APIDataType | -1,
 		value: StateValue,
@@ -547,6 +650,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Decode response payload bytes into a JavaScript value.
+	 */
 	private decodeValue(dataType: APIDataType | -1, payload: Buffer): StateValue {
 		switch (dataType) {
 			case APIDataType.Boolean:
@@ -577,6 +683,11 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Decode a Connect API string payload.
+	 *
+	 * Strings are length-prefixed with a signed 32-bit little-endian byte count.
+	 */
 	private decodeString(payload: Buffer): string {
 		this.assertPayloadLength(payload, 4);
 
@@ -589,6 +700,9 @@ export class ProtocolClient {
 		return payload.toString("utf8", 4, 4 + stringLength);
 	}
 
+	/**
+	 * Ensure the payload contains enough bytes for a fixed-width value.
+	 */
 	private assertPayloadLength(payload: Buffer, requiredLength: number): void {
 		if (payload.length < requiredLength) {
 			throw new Error(
@@ -597,6 +711,9 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Return the active socket or fail if the protocol client is not connected.
+	 */
 	private assertSocket(): net.Socket {
 		if (!this.connected || !this.socket || this.socket.destroyed) {
 			throw new Error("The protocol client is not connected.");
@@ -605,6 +722,9 @@ export class ProtocolClient {
 		return this.socket;
 	}
 
+	/**
+	 * Write bytes and surface any socket write error as a rejected promise.
+	 */
 	private async writeToSocket(socket: net.Socket, data: Buffer): Promise<void> {
 		await new Promise<void>((resolve, reject) => {
 			socket.write(data, (error) => {
@@ -618,6 +738,9 @@ export class ProtocolClient {
 		});
 	}
 
+	/**
+	 * Remove a pending read from the per-state queue.
+	 */
 	private removePendingRead(id: number, pending: PendingRead): void {
 		const queue = this.pendingReads.get(id);
 
@@ -636,6 +759,10 @@ export class ProtocolClient {
 		}
 	}
 
+	/**
+	 * Reject every outstanding manifest/read request with the same connection
+	 * failure.
+	 */
 	private rejectPendingRequests(error: Error): void {
 		if (this.pendingManifest) {
 			clearTimeout(this.pendingManifest.timer);
@@ -653,12 +780,19 @@ export class ProtocolClient {
 		this.pendingReads.clear();
 	}
 
+	/**
+	 * Abort the socket after an unrecoverable protocol parsing error.
+	 */
 	private handleProtocolFailure(error: Error): void {
 		this.rejectPendingRequests(error);
 		this.receiveBuffer = Buffer.alloc(0);
 		this.socket?.destroy(error);
 	}
 
+	/**
+	 * Create a consistent type error for values that cannot be encoded for a
+	 * manifest entry.
+	 */
 	private invalidValueError(
 		path: string,
 		expected: string,
