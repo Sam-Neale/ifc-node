@@ -1,0 +1,1 @@
+// src/errors/index.ts
