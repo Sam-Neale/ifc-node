@@ -31,6 +31,9 @@
 	"engines": {
 		"node": ">=20"
 	},
+	"repository": {
+		"url": "https://github.com/sam-neale/ifc-node.git"
+	},
 	"scripts": {
 		"build": "tsc",
 		"lint": "eslint .",
