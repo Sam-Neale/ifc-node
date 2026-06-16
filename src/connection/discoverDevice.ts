@@ -71,7 +71,6 @@ export async function discoverDevice(
 			try {
 				const packet = JSON.parse(message.toString("utf8")) as DiscoveryPacket;
 				const device = parseDiscoveryPacket(packet);
-				console.log(device);
 				finish(undefined, device);
 			} catch {
 				// Ignore unrelated or malformed UDP packets.

@@ -227,9 +227,6 @@ export class ProtocolClient {
 			this.createRequest(entry.id, true),
 			encodedValue,
 		]);
-		console.log(`Writing value to "${path}":`, value);
-		console.log(request);
-		console.log(socket.address());
 		await this.writeToSocket(socket, request);
 	}
 
@@ -583,14 +580,12 @@ export class ProtocolClient {
 			}
 
 			case APIDataType.Integer: {
-				console.log(`Encoding integer value for "${path}":`, value);
 				if (typeof value !== "number" || !Number.isInteger(value)) {
 					throw this.invalidValueError(path, "32-bit integer", value);
 				}
 
 				const buffer = Buffer.alloc(4);
 				buffer.writeInt32LE(value, 0);
-				console.log(buffer);
 				return buffer;
 			}
 

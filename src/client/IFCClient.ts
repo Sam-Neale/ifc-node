@@ -149,18 +149,14 @@ export class IFCClient {
 
 		try {
 			const automaticDiscovery = !this.options.host;
-			console.log(this.options.host);
 			if (this.options.host) {
 				this.resolvedHost = this.options.host;
 			} else {
-				console.log("Path 1");
 				this.discoveredDevice = await discoverDevice(
 					this.options.discoveryTimeout,
 				);
-				console.log("Path 1.1");
 				this.resolvedHost = this.discoveredDevice.address;
 			}
-			console.log(`Resolved Infinite Flight host: ${this.resolvedHost}`);
 			await this.protocol.connect(this.resolvedHost, this.options.port);
 
 			const manifest = await this.validateConnection(automaticDiscovery);
