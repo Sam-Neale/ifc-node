@@ -63,6 +63,26 @@ export const ValueConverters = {
 	},
 
 	/**
+	 * Convert feet per minute to metres per second.
+	 *
+	 * @param fpm Vertical speed in feet per minute.
+	 * @returns Vertical speed in metres per second.
+	 */
+	fpmToMps(fpm: number): number {
+		return fpm * 0.00508;
+	},
+
+	/**
+	 * Convert metres per second to feet per minute.
+	 *
+	 * @param mps Vertical speed in metres per second.
+	 * @returns Vertical speed in feet per minute.
+	 */
+	mpsToFpm(mps: number): number {
+		return mps / 0.00508;
+	},
+
+	/**
 	 * Convert knots to metres per second.
 	 *
 	 * @param kts Speed in knots.
