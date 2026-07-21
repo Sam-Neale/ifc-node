@@ -1,6 +1,6 @@
 {
 	"name": "ifc-node",
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"description": "Infinite Flight Connect API Wrapper for Node.JS",
 	"keywords": [
 		"IF",
