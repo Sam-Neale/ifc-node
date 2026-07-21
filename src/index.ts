@@ -63,6 +63,46 @@ export const ValueConverters = {
 	},
 
 	/**
+	 * Convert knots to metres per second.
+	 *
+	 * @param kts Speed in knots.
+	 * @returns Speed in metres per second.
+	 */
+	ktsToMps(kts: number): number {
+		return kts * 0.514444;
+	},
+
+	/**
+	 * Convert metres per second to knots.
+	 *
+	 * @param mps Speed in metres per second.
+	 * @returns Speed in knots.
+	 */
+	mpsToKts(mps: number): number {
+		return mps / 0.514444;
+	},
+
+	/**
+	 * Convert radians to degrees.
+	 *
+	 * @param rad Radians to convert.
+	 * @returns Degrees.
+	 */
+	radToDeg(rad: number): number {
+		return rad * (180 / Math.PI);
+	},
+
+	/**
+	 * Convert degrees to radians.
+	 *
+	 * @param deg Degrees to convert.
+	 * @returns Radians.
+	 */
+	degToRad(deg: number): number {
+		return deg * (Math.PI / 180);
+	},
+
+	/**
 	 * Convert metres per minute to feet per minute.
 	 *
 	 * @param mpm Vertical speed in metres per minute.
